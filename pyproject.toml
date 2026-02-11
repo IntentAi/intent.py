@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "intent.py"
+version = "0.1.0"
+description = "Python bot SDK for Intent"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [{name = "IntentAi"}]
+requires-python = ">=3.8"
+dependencies = [
+    "aiohttp>=3.8.0",
+    "msgpack>=1.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/IntentAi/intent.py"
+Documentation = "https://docs.intent.chat"
+Repository = "https://github.com/IntentAi/intent.py"
