@@ -1,3 +1,3 @@
-"""WebSocket gateway with MessagePack protocol"""
+"""WebSocket gateway with MessagePack protocol."""
 
-# Coming soon
+# Placeholder - will be implemented in issue #3
