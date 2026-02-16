@@ -4,8 +4,6 @@
 class IntentError(Exception):
     """Base exception for all Intent errors."""
 
-    pass
-
 
 class HTTPException(IntentError):
     """HTTP request failed."""

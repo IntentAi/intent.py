@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, cast
 
+from ..types.channel import ChannelPayload
+from ..types.server import ServerPayload
 from ._base import StatefulModel
 
 if TYPE_CHECKING:
     from ..state import ConnectionState
-    from ..types.channel import ChannelPayload
-    from ..types.server import ServerPayload
 
 
 class Server(StatefulModel):

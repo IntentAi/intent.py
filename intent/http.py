@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
+import time
 from typing import Any, cast
 
 import aiohttp
@@ -82,7 +83,8 @@ class HTTPClient:
             # Wait for global rate limit
             async with self._global_lock:
                 if self._global_over > 0:
-                    delay = self._global_over - asyncio.get_event_loop().time()
+                    now = time.time()
+                    delay = self._global_over - now
                     if delay > 0:
                         log.warning(f"Global rate limit - waiting {delay:.2f}s")
                         await asyncio.sleep(delay)
@@ -97,7 +99,7 @@ class HTTPClient:
                     route.method, url, json=json, params=params, headers=headers
                 ) as resp:
                     # Update bucket from headers
-                    bucket.update(dict(resp.headers))
+                    bucket.update(resp.headers)
 
                     # Success responses
                     if 200 <= resp.status < 300:
@@ -113,9 +115,7 @@ class HTTPClient:
 
                         if is_global:
                             async with self._global_lock:
-                                self._global_over = (
-                                    asyncio.get_event_loop().time() + retry_after
-                                )
+                                self._global_over = time.time() + retry_after
                             log.warning(f"Global rate limit hit - retry after {retry_after}s")
                         else:
                             log.warning(
@@ -166,7 +166,8 @@ class HTTPClient:
                 await asyncio.sleep(delay)
                 continue
 
-        raise HTTPException(0, "Max retries exceeded")
+        # Unreachable - loop always raises on last attempt
+        raise HTTPException(0, "Max retries exceeded")  # pragma: no cover
 
     # ==================== Servers ====================
 

@@ -3,6 +3,7 @@
 import asyncio
 import time
 from collections import deque
+from collections.abc import Mapping
 
 
 class RateLimitBucket:
@@ -38,7 +39,7 @@ class RateLimitBucket:
         self._process_queue()
         await future
 
-    def update(self, headers: dict[str, str]) -> None:
+    def update(self, headers: Mapping[str, str]) -> None:
         """Update rate limit info from response headers."""
         if limit := headers.get("x-ratelimit-limit"):
             self.limit = int(limit)

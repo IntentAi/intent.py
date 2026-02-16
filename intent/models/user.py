@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from ..types.user import UserPayload
 from ._base import StatefulModel
 
 if TYPE_CHECKING:
     from ..state import ConnectionState
-    from ..types.user import UserPayload
 
 
 class User(StatefulModel):
@@ -31,7 +31,10 @@ class User(StatefulModel):
         self.created_at: str = data["created_at"]
 
     def __repr__(self) -> str:
-        return f"<User id={self.id!r} username={self.username!r} display_name={self.display_name!r}>"
+        return (
+            f"<User id={self.id!r} username={self.username!r} "
+            f"display_name={self.display_name!r}>"
+        )
 
     def __str__(self) -> str:
         return self.display_name

@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, cast
 
+from ..types.message import MessagePayload
 from ._base import StatefulModel
 
 if TYPE_CHECKING:
     from ..state import ConnectionState
-    from ..types.message import MessagePayload
     from .user import User
 
 
