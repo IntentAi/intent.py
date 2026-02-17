@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
+import sys
 from collections.abc import Awaitable, Callable
 from typing import Any, cast
 
@@ -73,8 +74,6 @@ class GatewayClient:
         while not self._closed:
             try:
                 await self._run()
-                # Clean disconnect — reset backoff so next reconnect is fast.
-                attempt = 0
             except Exception as exc:
                 if self._closed:
                     return
@@ -91,9 +90,15 @@ class GatewayClient:
     async def close(self) -> None:
         """Shut down the connection and stop reconnecting."""
         self._closed = True
-        for task in (self._heartbeat_task, self._recv_task):
-            if task and not task.done():
-                task.cancel()
+
+        # Cancel tasks and wait for them to finish before closing the socket.
+        # Without this, a concurrent send() in a task races against ws.close().
+        tasks = [t for t in (self._heartbeat_task, self._recv_task) if t and not t.done()]
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
         if self._ws is not None:
             await self._ws.close()
 
@@ -117,55 +122,79 @@ class GatewayClient:
         async with connect(self._url) as ws:
             self._ws = ws
             self._heartbeat_missed = 0
+            self._seq = None  # fresh sequence for this connection
+            try:
+                await self._identify()
 
-            await self._identify()
+                # Block here until the server sends Ready (op 3).
+                ready_d = await self._wait_for_ready(ws)
+                interval_ms = int(ready_d.get("heartbeat_interval", 41250))
+                self._heartbeat_interval = interval_ms / 1000.0
+                log.info("Ready (heartbeat every %.2fs)", self._heartbeat_interval)
 
-            # Block here until the server sends Ready (op 3).
-            ready_d = await self._wait_for_ready(ws)
-            interval_ms: int = ready_d.get("heartbeat_interval", 41250)
-            self._heartbeat_interval = interval_ms / 1000.0
-            log.info("Ready (heartbeat every %.2fs)", self._heartbeat_interval)
+                # Fire READY as a pseudo-event so state can populate caches.
+                await self._dispatch("READY", ready_d, 0)
 
-            # Fire READY as a pseudo-event so state can populate caches.
-            await self._dispatch("READY", ready_d, 0)
+                # Run heartbeat and receive concurrently; stop both when either fails.
+                self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+                self._recv_task = asyncio.create_task(self._recv_loop(ws))
 
-            # Run heartbeat and receive concurrently; stop both when either fails.
-            self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
-            self._recv_task = asyncio.create_task(self._recv_loop(ws))
+                done, pending = await asyncio.wait(
+                    {self._heartbeat_task, self._recv_task},
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
 
-            done, pending = await asyncio.wait(
-                {self._heartbeat_task, self._recv_task},
-                return_when=asyncio.FIRST_COMPLETED,
-            )
+                for task in pending:
+                    task.cancel()
+                    try:
+                        await task
+                    except (asyncio.CancelledError, Exception):
+                        pass
 
-            for task in pending:
-                task.cancel()
-                try:
-                    await task
-                except (asyncio.CancelledError, Exception):
-                    pass
-
-            # Re-raise any exception from the task that finished first.
-            for task in done:
-                if not task.cancelled():
-                    exc = task.exception()
-                    if exc is not None:
-                        raise exc
+                # Re-raise the first exception; log any secondary one.
+                first_exc: BaseException | None = None
+                for task in done:
+                    if not task.cancelled():
+                        exc = task.exception()
+                        if exc is not None:
+                            if first_exc is None:
+                                first_exc = exc
+                            else:
+                                log.debug("Secondary task exception (suppressed): %r", exc)
+                if first_exc is not None:
+                    raise first_exc
+            finally:
+                # Clear ws ref so send() fails fast during reconnect window.
+                self._ws = None
 
     async def _wait_for_ready(self, ws: ClientConnection) -> dict[str, Any]:
         """Consume messages until Ready (op 3) arrives.
 
         Raises:
-            GatewayError: If the connection closes before Ready.
+            GatewayError: If the connection closes before Ready, or if the
+                          server sends a payload that indicates auth failure.
         """
         async for raw in ws:
             if not isinstance(raw, bytes):
                 continue
-            payload = cast(GatewayPayload, msgpack.unpackb(raw, raw=False))
-            if payload.get("op", -1) == OP_READY:
+
+            raw_payload = msgpack.unpackb(raw, raw=False)
+            if not isinstance(raw_payload, dict):
+                log.warning("Non-dict msgpack frame before Ready (type=%s), ignoring",
+                            type(raw_payload).__name__)
+                continue
+
+            payload = cast(GatewayPayload, raw_payload)
+            op = payload.get("op", -1)
+
+            if op == OP_READY:
                 d = payload.get("d")
                 return d if isinstance(d, dict) else {}
-            log.debug("Ignoring op %d before Ready", payload.get("op", -1))
+
+            # Any other opcode before Ready is unexpected — log at warning so
+            # auth failures (e.g. future op 8 Invalid Session) surface clearly.
+            log.warning("Unexpected op %d before Ready, ignoring", op)
+
         raise GatewayError("Connection closed before Ready received")
 
     async def _identify(self) -> None:
@@ -174,7 +203,7 @@ class GatewayClient:
             OP_IDENTIFY,
             {
                 "token": self.token,
-                "properties": {"os": "linux", "browser": "intent.py", "device": "bot"},
+                "properties": {"os": sys.platform, "browser": "intent.py", "device": "bot"},
             },
         )
         log.debug("Sent Identify")
@@ -184,6 +213,8 @@ class GatewayClient:
 
         Tracks missed ACKs; 3 consecutive missed ACKs = dead connection.
         Counter increments on send, resets to 0 when an ACK arrives.
+        Raises ConnectionClosed rather than closing the socket directly —
+        the _run() context manager handles the actual WS close on exit.
         """
         while True:
             await asyncio.sleep(self._heartbeat_interval)
@@ -193,9 +224,7 @@ class GatewayClient:
             log.debug("Heartbeat sent (outstanding=%d)", self._heartbeat_missed)
 
             if self._heartbeat_missed >= 3:
-                log.warning("3 missed heartbeat ACKs — closing connection")
-                if self._ws is not None:
-                    await self._ws.close()
+                log.warning("3 missed heartbeat ACKs — dropping connection")
                 raise ConnectionClosed(None, "Heartbeat timeout")
 
     async def _recv_loop(self, ws: ClientConnection) -> None:
@@ -204,7 +233,14 @@ class GatewayClient:
             if not isinstance(raw, bytes):
                 log.debug("Non-binary frame received, ignoring")
                 continue
-            payload = cast(GatewayPayload, msgpack.unpackb(raw, raw=False))
+
+            raw_payload = msgpack.unpackb(raw, raw=False)
+            if not isinstance(raw_payload, dict):
+                log.warning("Non-dict msgpack frame (type=%s), ignoring",
+                            type(raw_payload).__name__)
+                continue
+
+            payload = cast(GatewayPayload, raw_payload)
             await self._handle(payload)
 
     async def _handle(self, payload: GatewayPayload) -> None:
@@ -218,7 +254,10 @@ class GatewayClient:
                 return
             seq: int = payload.get("s") or 0
             self._seq = seq
-            await self._dispatch(event, payload.get("d"), seq)
+            try:
+                await self._dispatch(event, payload.get("d"), seq)
+            except Exception:
+                log.exception("Unhandled exception in dispatch callback for %s", event)
 
         elif op == OP_HEARTBEAT_ACK:
             self._heartbeat_missed = 0

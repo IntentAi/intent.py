@@ -15,10 +15,15 @@ class GatewayPayload(TypedDict, total=False):
     s: int  # Sequence number (Dispatch only)
 
 
-class IdentifyPayload(TypedDict, total=False):
-    """Identify payload (op 2)."""
+class _IdentifyRequired(TypedDict):
+    """Required fields for Identify payload."""
 
     token: str
+
+
+class IdentifyPayload(_IdentifyRequired, total=False):
+    """Identify payload (op 2). token is required; intents and properties are optional."""
+
     intents: int
     properties: dict[str, str]
 

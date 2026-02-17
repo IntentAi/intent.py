@@ -197,6 +197,19 @@ class TestHandle:
 
         assert received == []
 
+    async def test_dispatch_exception_is_caught_not_propagated(self) -> None:
+        # An exception inside the dispatch callback must not crash the recv loop.
+        async def bad_dispatch(event: str, data: Any, seq: int) -> None:
+            raise RuntimeError("callback blew up")
+
+        client = GatewayClient("t", bad_dispatch)
+        ws = MockWS([])
+        client._ws = ws  # type: ignore[assignment]
+
+        # Should not raise — exception is caught and logged.
+        payload = {"op": OP_DISPATCH, "t": "MESSAGE_CREATE", "s": 1, "d": {}}
+        await client._handle(payload)  # type: ignore[arg-type]
+
 
 # ---------------------------------------------------------------------------
 # _wait_for_ready()
@@ -247,6 +260,20 @@ class TestWaitForReady:
         result = await client._wait_for_ready(ws)  # type: ignore[arg-type]
         assert result["heartbeat_interval"] == 1000
 
+    async def test_ignores_non_dict_msgpack_frame(self) -> None:
+        # A valid msgpack frame that is not a dict (e.g., a bare int) must be skipped.
+        import msgpack as mp
+
+        client = GatewayClient("t", noop)
+        ws = MockWS([
+            mp.packb(42, use_bin_type=True),  # bare int — invalid gateway frame
+            pack(OP_READY, {"heartbeat_interval": 2000, "user": {}, "servers": []}),
+        ])
+        client._ws = ws  # type: ignore[assignment]
+
+        result = await client._wait_for_ready(ws)  # type: ignore[arg-type]
+        assert result["heartbeat_interval"] == 2000
+
 
 # ---------------------------------------------------------------------------
 # _identify()
@@ -279,15 +306,16 @@ class TestHeartbeatLoop:
         client = GatewayClient("t", noop)
         ws = MockWS([])
         client._ws = ws  # type: ignore[assignment]
-        # Counter starts at 2; on the next iteration it sends, increments to 3, then closes.
+        # Counter starts at 2; on the next iteration it sends, increments to 3, then raises.
         client._heartbeat_missed = 2
 
         with patch("asyncio.sleep", new_callable=AsyncMock):
             with pytest.raises(ConnectionClosed, match="Heartbeat timeout"):
                 await client._heartbeat_loop()
 
-        ws.close.assert_called_once()
-        # One heartbeat was sent before the close.
+        # heartbeat_loop no longer closes ws directly — _run() context manager does that.
+        ws.close.assert_not_called()
+        # One heartbeat was sent before raising.
         assert ws.send.call_count == 1
 
     async def test_increments_missed_and_sends_heartbeat(self) -> None:
@@ -343,9 +371,9 @@ class TestClose:
         client._heartbeat_task = asyncio.create_task(long_running())
         client._recv_task = asyncio.create_task(long_running())
 
+        # close() now awaits the cancelled tasks internally via gather, so they
+        # are fully cancelled before close() returns.
         await client.close()
-        # Let the event loop process the CancelledError in each task.
-        await asyncio.sleep(0)
 
         assert client._heartbeat_task.cancelled()
         assert client._recv_task.cancelled()
@@ -356,3 +384,48 @@ class TestClose:
         client._ws = ws  # type: ignore[assignment]
         # No tasks set — should not raise
         await client.close()
+
+
+# ---------------------------------------------------------------------------
+# _recv_loop()
+# ---------------------------------------------------------------------------
+
+
+class TestRecvLoop:
+    async def test_non_dict_msgpack_frame_skipped(self) -> None:
+        import msgpack as mp
+
+        received: list[str] = []
+
+        async def capture(event: str, data: Any, seq: int) -> None:
+            received.append(event)
+
+        client = GatewayClient("t", capture)
+        # bare int frame followed by a valid dispatch
+        ws = MockWS([
+            mp.packb(99, use_bin_type=True),
+            pack(OP_DISPATCH, {"content": "hi"}, t="MESSAGE_CREATE", s=1),
+        ])
+        client._ws = ws  # type: ignore[assignment]
+
+        await client._recv_loop(ws)  # type: ignore[arg-type]
+
+        # Only the valid dispatch should have reached the callback.
+        assert received == ["MESSAGE_CREATE"]
+
+    async def test_non_binary_frame_skipped(self) -> None:
+        received: list[str] = []
+
+        async def capture(event: str, data: Any, seq: int) -> None:
+            received.append(event)
+
+        client = GatewayClient("t", capture)
+        ws = MockWS([
+            "stray text frame",
+            pack(OP_DISPATCH, {"content": "hi"}, t="SERVER_CREATE", s=2),
+        ])
+        client._ws = ws  # type: ignore[assignment]
+
+        await client._recv_loop(ws)  # type: ignore[arg-type]
+
+        assert received == ["SERVER_CREATE"]
