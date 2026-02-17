@@ -1,3 +1,3 @@
-"""Client implementation (discord.py compatible)"""
+"""Client implementation."""
 
-# Coming soon
+# Placeholder - will be implemented in issue #5
