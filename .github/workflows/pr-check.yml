@@ -1,0 +1,33 @@
+name: PR Check
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check branch target
+        if: github.base_ref == 'main'
+        run: |
+          echo "::error::PRs should target a phase branch (p2, p3) or dev, not main."
+          exit 1
+
+      - name: Check PR title format
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          if ! echo "$TITLE" | grep -qE '^(feat|fix|refactor|chore|docs|test|perf)(\(.+\))?: .+'; then
+            echo "::error::PR title should follow conventional commits: type(scope): description"
+            echo "Examples: feat(state): cache gateway events, test(models): add User method tests"
+            exit 1
+          fi
+
+      - name: Check issue reference
+        env:
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          if ! echo "$BODY" | grep -qiE '(close[sd]?|fix(e[sd])?|resolve[sd]?) #[0-9]+'; then
+            echo "::warning::PR body should reference an issue (e.g., Closes #7)"
+          fi

@@ -1,71 +1,56 @@
 # intent.py
 
-Python bot SDK for Intent.
+Python bot SDK for [Intent](https://github.com/IntentAi/intent). Mirrors discord.py patterns for easy bot migration.
 
-**Designed to mirror discord.py patterns** for easy bot migration.
+> Phase 1 development — gateway and REST client implemented, models and state cache in progress.
 
-## Status
+## Why
 
- **Phase 1 Development** - SDK being built.
-
-## Why intent.py?
-
-Communities won't migrate without their bots. intent.py makes bot porting trivial:
+Communities won't migrate without their bots. intent.py makes porting straightforward:
 
 ```python
-# Change this:
+# discord.py
 import discord
+client = discord.Client()
 
-# To this:
+# intent.py
 import intent
-
-# Most of your code just works
+client = intent.Client()
 ```
 
-Same class structure, same decorators, same event patterns as discord.py where possible.
-
-## Installation
-
-```bash
-pip install intent.py
-```
-
-(Coming soon)
+Same class structure, same decorators, same async patterns.
 
 ## Quick Start
 
 ```python
 import intent
-from intent.ext import commands
 
-bot = commands.Bot(command_prefix='!')
+client = intent.Client()
 
-@bot.event
+@client.event
 async def on_ready():
-  print(f'Logged in as {bot.user.name}')
+    print(f'Logged in as {client.user.name}')
 
-@bot.command()
-async def ping(ctx):
-  await ctx.send('Pong!')
+@client.event
+async def on_message(message):
+    if message.content == '!ping':
+        await message.channel.send('Pong!')
 
-bot.run('your-bot-token')
+client.run('your-bot-token')
 ```
 
-## Features
+## Install
 
-- discord.py-compatible API
-- MessagePack binary protocol
-- Async/await support
-- Decorator-based commands
-- Full type hints
+```bash
+pip install intent.py  # coming soon
+```
 
-## Migration from discord.py
-
-See [examples/migration_guide.md](examples/migration_guide.md)
-
-## Documentation
-
-In development: Full API documentation
+For development:
+```bash
+git clone https://github.com/IntentAi/intent.py
+cd intent.py
+pip install -e ".[dev]"
+```
 
 ## Contributing
 
@@ -73,4 +58,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ## License
 
-MIT License - See [LICENSE](LICENSE)
+MIT

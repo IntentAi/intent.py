@@ -1,0 +1,23 @@
+gateway:
+  - changed-files:
+      - any-glob-to-any-file: "intent/gateway*"
+
+http:
+  - changed-files:
+      - any-glob-to-any-file: "intent/http*"
+
+models:
+  - changed-files:
+      - any-glob-to-any-file: "intent/models/**"
+
+client:
+  - changed-files:
+      - any-glob-to-any-file: "intent/client*"
+
+state:
+  - changed-files:
+      - any-glob-to-any-file: "intent/state*"
+
+tests:
+  - changed-files:
+      - any-glob-to-any-file: "tests/**"
