@@ -64,3 +64,16 @@ class ServerError(HTTPException):
 
     def __init__(self, status: int, message: str) -> None:
         super().__init__(status, message, "SERVER_ERROR")
+
+
+class GatewayError(IntentError):
+    """Base exception for gateway errors."""
+
+
+class ConnectionClosed(GatewayError):
+    """WebSocket connection closed unexpectedly."""
+
+    def __init__(self, code: int | None, reason: str) -> None:
+        self.code = code
+        self.reason = reason
+        super().__init__(f"Connection closed (code={code}): {reason}")
