@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import ValuesView
 from typing import TYPE_CHECKING, Any, cast
 
 from .models.channel import Channel
@@ -48,8 +49,8 @@ class ConnectionState:
         return self._user
 
     @property
-    def servers(self) -> list[Server]:
-        return list(self._servers.values())
+    def servers(self) -> ValuesView[Server]:
+        return self._servers.values()
 
     def get_user(self, user_id: str) -> User | None:
         return self._users.get(user_id)
