@@ -2,7 +2,7 @@
 
 Python bot SDK for [Intent](https://github.com/IntentAi/intent). Mirrors discord.py patterns for easy bot migration.
 
-> Phase 1 development — gateway and REST client implemented, models and state cache in progress.
+> Phase 1 development — gateway, REST client, models, and state cache implemented. Client class coming next.
 
 ## Why
 
