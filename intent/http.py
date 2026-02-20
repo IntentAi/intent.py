@@ -86,7 +86,7 @@ class HTTPClient:
                     now = time.time()
                     delay = self._global_over - now
                     if delay > 0:
-                        log.warning(f"Global rate limit - waiting {delay:.2f}s")
+                        log.warning("Global rate limit — waiting %.2fs", delay)
                         await asyncio.sleep(delay)
                     self._global_over = 0.0
 
@@ -116,10 +116,12 @@ class HTTPClient:
                         if is_global:
                             async with self._global_lock:
                                 self._global_over = time.time() + retry_after
-                            log.warning(f"Global rate limit hit - retry after {retry_after}s")
+                            log.warning("Global rate limit hit — retry after %ss", retry_after)
                         else:
                             log.warning(
-                                f"Route {route.bucket_key} rate limited - retry after {retry_after}s"
+                                "Route %s rate limited — retry after %ss",
+                                route.bucket_key,
+                                retry_after,
                             )
 
                         # Last attempt - raise instead of retry
@@ -148,7 +150,11 @@ class HTTPClient:
                         # Exponential backoff with jitter
                         delay = (2**attempt) + random.uniform(0, 1)
                         log.warning(
-                            f"Server error {resp.status} - retry {attempt + 1}/{self.max_retries} after {delay:.2f}s"
+                            "Server error %d — retry %d/%d after %.2fs",
+                            resp.status,
+                            attempt + 1,
+                            self.max_retries,
+                            delay,
                         )
                         await asyncio.sleep(delay)
                         continue
@@ -162,7 +168,12 @@ class HTTPClient:
                     raise HTTPException(0, f"Network error: {e}")
 
                 delay = (2**attempt) + random.uniform(0, 1)
-                log.warning(f"Network error - retry {attempt + 1}/{self.max_retries} after {delay:.2f}s")
+                log.warning(
+                    "Network error — retry %d/%d after %.2fs",
+                    attempt + 1,
+                    self.max_retries,
+                    delay,
+                )
                 await asyncio.sleep(delay)
                 continue
 
